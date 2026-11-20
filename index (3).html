@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Parada SE 138kV – Nestlé MOC</title>
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#2e6b4f">
+<link rel="stylesheet" href="style.css">
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/exceljs/dist/exceljs.min.js"></script>
+</head>
+<body>
+<header>
+  <div><h1>Parada de Fábrica – Nestlé Montes Claros</h1><small>Projeto: Subestação 138 kV</small></div>
+  <div class="actions">
+    <input id="user" placeholder="Seu nome">
+    <button onclick="load()">↻</button>
+    <button onclick="exportXlsx()">📊 Exportar Excel</button>
+  </div>
+</header>
+<section class="kpis">
+  <div class="kpi"><span id="kGeral">0%</span>Geral</div>
+  <div class="kpi ok"><span id="kOk">0</span>Concluídas</div>
+  <div class="kpi lib"><span id="kLib">0</span>Liberadas</div>
+  <div class="kpi blq"><span id="kBlq">0</span>Bloqueadas</div>
+</section>
+<section class="chart"><canvas id="chart" height="110"></canvas></section>
+<section>
+  <select id="filtro" onchange="render()">
+    <option value="">Todas</option><option>Liberado</option><option>Bloqueado</option><option>Concluído</option>
+  </select>
+  <table><thead><tr><th>ID</th><th>Descrição</th><th>Pred.</th><th>%</th><th>Status</th><th>✔</th></tr></thead>
+  <tbody id="tb"></tbody></table>
+</section>
+<script src="app.js"></script>
+</body></html>
