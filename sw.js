@@ -1,4 +1,4 @@
-const CACHE = 'proj-v5';
+const CACHE = 'proj-v7';
 const ARQS = ['./', 'index.html', 'manifest.json'];
 
 self.addEventListener('install', e => {
@@ -10,7 +10,7 @@ self.addEventListener('activate', e => {
   self.clients.claim();
 });
 self.addEventListener('fetch', e => {
-  if (!e.request.url.startsWith(self.location.origin)) return; // não intercepta a API
+  if (!e.request.url.startsWith(self.location.origin)) return; // não intercepta API nem CDN
   e.respondWith(
     fetch(e.request)
       .then(r => { const c = r.clone(); caches.open(CACHE).then(ca => ca.put(e.request, c)); return r; })
