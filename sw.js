@@ -1,4 +1,4 @@
-const CACHE = 'proj-v9';
+const CACHE = 'proj-v10';
 const ARQS = ['./', 'index.html', 'manifest.json'];
 
 self.addEventListener('install', e => {
@@ -15,8 +15,8 @@ self.addEventListener('activate', e => {
 });
 
 self.addEventListener('fetch', e => {
-  if (e.request.method !== 'GET') return;                      // não intercepta POST
-  if (!e.request.url.startsWith(self.location.origin)) return; // não intercepta API nem CDN
+  if (e.request.method !== 'GET') return;
+  if (!e.request.url.startsWith(self.location.origin)) return;
   e.respondWith(
     fetch(e.request)
       .then(r => {
