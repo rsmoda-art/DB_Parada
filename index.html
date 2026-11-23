@@ -217,7 +217,12 @@ async function carregar() {
   $('#loading').classList.remove('hidden');
   try {
     projetos = await (await fetch(`${API_URL}?action=all`)).json();
-    projetos.forEach(calcular);
+    projetos.forEach(p => {
+      // ignora cabeçalho e linhas sem ID numérico válido (ex.: "ID", vazio)
+      p.rows = (p.rows || []).filter(r => /^\d+(\.\d+)*$/.test(String(r.id ?? '').trim()));
+      p.rows.forEach(r => r.id = String(r.id).trim());
+      calcular(p);
+    });
     rota();
   } catch (e) { console.error(e); toast('Erro ao carregar dados'); }
   $('#loading').classList.add('hidden');
