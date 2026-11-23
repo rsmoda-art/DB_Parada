@@ -55,6 +55,9 @@ textarea.obs{width:100%;min-width:220px;resize:vertical;font-size:12px}textarea.
 .av2 i{position:absolute;left:0;top:0;height:100%}.av2 .pl{background:#c7d0da}.av2 .ex{background:#2e9d5b}.av2 .eqb{background:#1e3a5f}
 #print table{font-size:11px}#print td,#print th{white-space:normal;padding:4px;vertical-align:middle}
 #print ul{margin:4px 0;padding-left:18px}
+#print .pb{break-before:page}
+#print tr.grp td{background:#e1ecf8;font-weight:700}
+#print tr.tot td{background:#e9eef4;font-weight:700}
 @media print{
   @page{size:A4;margin:12mm}
   body{background:#fff;-webkit-print-color-adjust:exact;print-color-adjust:exact}
@@ -344,6 +347,55 @@ function todos(i, ocultar) {
   projeto(i);
 }
 
+// ---------- REGRAS DOS RELATÓRIOS (Excel e PDF) ----------
+function regras(p) {
+  const H = hoje(), hs = iso(H);
+  const fimPl = r => r.iniPlan ? iso(new Date(toD(r.iniPlan).getTime() + Math.max(1, Math.ceil(r.prazo || 0)) * 864e5)) : '';
+  const ok = r => r.pct >= 100;
+  const emHoje = r => (r.iniPlan && r.iniPlan <= hs && hs < fimPl(r)) || r.fimReal === hs;
+  const atras = r => !ok(r) && r.iniPlan && fimPl(r) <= hs;
+  const naoIni = r => !ok(r) && !r.iniReal && r.iniPlan && r.iniPlan < hs;
+  const status = r => ok(r) ? 'Executada' : r.bloq ? 'Bloqueada' : r.iniReal ? 'Em andamento' : 'Pendente';
+  const pares = p.folhas.flatMap(r => listaEq(r.equipe).map(e => ({ e: e === SEM_EQ ? 'Sem equipe' : e, r })))
+    .sort((a, b) => a.e.localeCompare(b.e) || ordId(a.r, b.r));
+  const equipes = [...new Set(pares.map(x => x.e))];
+  const cont = l => {
+    const t = l.length, c = l.filter(ok).length;
+    return [t, c, t - c, t ? Math.round(c / t * 1000) / 10 : 0,
+      l.filter(emHoje).length, l.filter(r => emHoje(r) && ok(r)).length, l.filter(atras).length, l.filter(naoIni).length];
+  };
+  return { H, hs, fimPl, ok, emHoje, atras, naoIni, status, pares, equipes, cont };
+}
+
+// seções extras do PDF (mesmo conteúdo do Excel)
+function relHTML(p) {
+  const g = regras(p), d = g.H.toLocaleDateString('pt-BR');
+  const cab = ['Equipe', 'Total', 'Executadas', 'Pendentes', '% Exec.', 'Prog. hoje', 'Exec. hoje', 'Atrasadas', 'Não iniciadas'];
+  const lin = (c, cls = '') => `<tr class="${cls}">${c.map((x, k) => `<td>${esc(k === 4 ? fmt(x) + '%' : x)}</td>`).join('')}</tr>`;
+  const dash = `<h4>Dashboard por equipe: executadas x pendentes</h4>
+    <table><thead><tr>${cab.map(x => `<th>${x}</th>`).join('')}</tr></thead><tbody>
+    ${g.equipes.map(e => lin([e, ...g.cont(g.pares.filter(x => x.e === e).map(x => x.r))])).join('')}
+    ${lin(['TOTAL DO PROJETO', ...g.cont(p.folhas)], 'tot')}</tbody></table>`;
+
+  const sec = (titulo, filtro, xCab, xFn) => {
+    const l = g.pares.filter(x => filtro(x.r)), nc = xCab ? 9 : 8;
+    if (!l.length) return `<h4>${titulo} (0)</h4><p>Nenhuma atividade.</p>`;
+    let ult = null;
+    return `<h4>${titulo} (${l.length})</h4><table><thead><tr><th>ID</th><th>Atividade</th><th>Início plan.</th><th>Fim plan.</th>
+      <th>Início real</th><th>Fim real</th><th>Status</th>${xCab ? `<th>${xCab}</th>` : ''}<th>Observação</th></tr></thead><tbody>
+      ${l.map(({ e, r }) => {
+        const grp = e !== ult ? `<tr class="grp"><td colspan="${nc}">${esc(e)}</td></tr>` : ''; ult = e;
+        return grp + `<tr><td>${esc(r.id)}</td><td>${esc(r.descricao)}</td><td>${br(r.iniPlan)}</td><td>${br(g.fimPl(r))}</td>
+          <td>${br(r.iniReal)}</td><td>${br(r.fimReal)}</td><td>${g.status(r)}</td>${xCab ? `<td>${xFn(r)}</td>` : ''}<td>${esc(r.obs)}</td></tr>`;
+      }).join('')}</tbody></table>`;
+  };
+
+  return `<div class="pb"></div>${dash}
+    ${sec(`Programação do dia ${d}`, g.emHoje)}
+    ${sec('Atividades atrasadas', g.atras, 'Dias de atraso', r => diff(toD(g.fimPl(r)), g.H))}
+    ${sec('Programadas e não iniciadas', g.naoIni, 'Dias sem iniciar', r => diff(toD(r.iniPlan), g.H))}`;
+}
+
 // ---------- DASHBOARD / PDF ----------
 const hb = (lbl, val, max, cor, txt) =>
   `<div class="hb"><span title="${esc(lbl)}">${esc(lbl)}</span><span class="tr"><i style="width:${max ? Math.min(100, val / max * 100) : 0}%;background:${cor}"></i></span><span style="width:52px;text-align:right">${txt}</span></div>`;
@@ -423,7 +475,8 @@ function exportarPDF(i) {
       <tbody>${crit.map(r => `<tr><td>${esc(r.id)}</td><td>${esc(r.descricao)}</td><td>${esc(r.equipe)}</td><td>${r.pct >= 100 ? '☑' : '☐'}</td>
       <td>${r.alertas.map(a => `<span class="tag t-${a.t}">${a.x}</span>`).join('')}</td><td>${esc(r.obs)}</td></tr>`).join('')}</tbody></table>` : ''}
     ${notas.length ? `<h4>Observações das atividades pendentes</h4><table><thead><tr><th>ID</th><th>Atividade</th><th>Pronto</th><th>Observação</th></tr></thead>
-      <tbody>${notas.map(r => `<tr><td>${esc(r.id)}</td><td>${esc(r.descricao)}</td><td>${r.pct >= 100 ? '☑' : '☐'}</td><td>${esc(r.obs)}</td></tr>`).join('')}</tbody></table>` : ''}`;
+      <tbody>${notas.map(r => `<tr><td>${esc(r.id)}</td><td>${esc(r.descricao)}</td><td>${r.pct >= 100 ? '☑' : '☐'}</td><td>${esc(r.obs)}</td></tr>`).join('')}</tbody></table>` : ''}
+    ${relHTML(p)}`;
 
   const t = document.title;
   document.title = `Dashboard - ${p.nome} - ${iso(H)}`;
@@ -434,34 +487,16 @@ function exportarPDF(i) {
 // ---------- RELATÓRIO EXCEL ----------
 function exportarExcel(i) {
   if (!window.XLSX) return toast('Biblioteca Excel não carregada (verifique a internet)');
-  const p = projetos[i], H = hoje(), hs = iso(H);
-  const fimPl = r => r.iniPlan ? iso(new Date(toD(r.iniPlan).getTime() + Math.max(1, Math.ceil(r.prazo || 0)) * 864e5)) : '';
-  const ok = r => r.pct >= 100;
-  const emHoje = r => (r.iniPlan && r.iniPlan <= hs && hs < fimPl(r)) || r.fimReal === hs;
-  const atras = r => !ok(r) && r.iniPlan && fimPl(r) <= hs;
-  const naoIni = r => !ok(r) && !r.iniReal && r.iniPlan && r.iniPlan < hs;
-  const status = r => ok(r) ? 'Executada' : r.bloq ? 'Bloqueada' : r.iniReal ? 'Em andamento' : 'Pendente';
-  const nomeEq = e => e === SEM_EQ ? 'Sem equipe' : e;
-
-  const pares = p.folhas.flatMap(r => listaEq(r.equipe).map(e => ({ e: nomeEq(e), r })))
-    .sort((a, b) => a.e.localeCompare(b.e) || ordId(a.r, b.r));
-  const equipes = [...new Set(pares.map(x => x.e))];
+  const p = projetos[i];
+  const { H, hs, fimPl, emHoje, atras, naoIni, status, pares, equipes, cont } = regras(p);
   const topo = t => [[`${p.nome} — ${t}`], [`Emitido em ${H.toLocaleDateString('pt-BR')}`], []];
 
-  // ----- Dashboard -----
-  const cont = l => {
-    const t = l.length, c = l.filter(ok).length;
-    return [t, c, t - c, t ? Math.round(c / t * 1000) / 10 : 0,
-      l.filter(emHoje).length, l.filter(r => emHoje(r) && ok(r)).length, l.filter(atras).length, l.filter(naoIni).length];
-  };
-  const dash = [...topo('Dashboard Executadas x Pendentes'),
+  const wsD = XLSX.utils.aoa_to_sheet([...topo('Dashboard Executadas x Pendentes'),
     ['Equipe', 'Total', 'Executadas', 'Pendentes', '% Executado', 'Programadas hoje', 'Executadas hoje', 'Atrasadas', 'Não iniciadas'],
     ...equipes.map(e => [e, ...cont(pares.filter(x => x.e === e).map(x => x.r))]),
-    [], ['TOTAL DO PROJETO', ...cont(p.folhas)]];
-  const wsD = XLSX.utils.aoa_to_sheet(dash);
+    [], ['TOTAL DO PROJETO', ...cont(p.folhas)]]);
   wsD['!cols'] = [24, 8, 11, 10, 12, 16, 15, 10, 13].map(w => ({ wch: w }));
 
-  // ----- Abas de listas -----
   const aba = (titulo, filtro, xCab, xFn) => {
     const lst = pares.filter(x => filtro(x.r));
     const rows = [...topo(titulo),
