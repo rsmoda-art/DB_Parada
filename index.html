@@ -6,6 +6,7 @@
 <meta name="theme-color" content="#1e3a5f">
 <link rel="manifest" href="manifest.json">
 <title>Acompanhamento de Projetos</title>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <style>
 *{box-sizing:border-box}body{margin:0;font-family:system-ui,sans-serif;background:#f1f4f8;color:#1c2733}
 header{background:#1e3a5f;color:#fff;padding:12px 16px;display:flex;gap:12px;align-items:center}
@@ -117,17 +118,15 @@ function alertas(r, H) {
   return s;
 }
 
-// dias de TRABALHO que faltam na atividade
 function restante(r, H) {
   if (r.pct >= 100 || r.fimReal) return 0;
   if (r.iniReal && r.pct > 0) {
     const dec = diff(toD(r.iniReal), H);
-    if (dec > 0) return dec * (100 - r.pct) / r.pct; // ritmo real
+    if (dec > 0) return dec * (100 - r.pct) / r.pct;
   }
   return r.prazo * (1 - r.pct / 100);
 }
 
-// % que deveria estar executado hoje pelo planejamento
 function planejado(r, H) {
   const ip = toD(r.iniPlan);
   if (!ip || !r.prazo) return 0;
@@ -166,13 +165,11 @@ function calcular(p) {
   };
   p.rows.forEach(r => r.bloq = predsEf(r).some(id => map[id].pctC < LIMIAR));
 
-  // Agenda: cada equipe executa uma atividade por vez, na ordem da data planejada.
-  // Início = maior entre (data planejada, fim das predecessoras, equipe livre).
   const livre = {}, visit = new Set();
   const fimDe = id => {
     const r = map[id];
     if (r.fim != null) return r.fim;
-    if (visit.has(id)) return 0; // proteção contra ciclo
+    if (visit.has(id)) return 0;
     visit.add(id);
     if (r.filhos.length) return r.fim = Math.max(0, ...r.filhos.map(f => fimDe(f.id)));
     const resto = restante(r, H);
@@ -180,7 +177,7 @@ function calcular(p) {
     if (resto <= 0) return r.fim = 0;
     const ip = toD(r.iniPlan);
     const base = !r.iniReal && ip ? Math.max(0, diff(H, ip)) : 0;
-    const eqs = eqReais(r.equipe); // sem equipe não entra em fila
+    const eqs = eqReais(r.equipe);
     r.inicio = Math.max(base, inicioPred, ...eqs.map(e => livre[e] || 0));
     r.fim = r.inicio + resto;
     eqs.forEach(e => livre[e] = r.fim);
@@ -197,7 +194,6 @@ function calcular(p) {
   p.plan = tot ? raiz.reduce((s, r) => s + r.prazoC * r.planC, 0) / tot : 0;
   p.dias = Math.ceil(Math.max(0, ...folhas.map(f => f.fim)));
 
-  // por equipe: término (dias a partir de hoje) e trabalho restante (dias efetivos)
   p.equipes = {}; p.trab = {};
   folhas.forEach(f => {
     if (!(f.fim > 0)) return;
@@ -218,7 +214,6 @@ async function carregar() {
   try {
     projetos = await (await fetch(`${API_URL}?action=all`)).json();
     projetos.forEach(p => {
-      // ignora cabeçalho e linhas sem ID numérico válido (ex.: "ID", vazio)
       p.rows = (p.rows || []).filter(r => /^\d+(\.\d+)*$/.test(String(r.id ?? '').trim()));
       p.rows.forEach(r => r.id = String(r.id).trim());
       calcular(p);
@@ -283,7 +278,7 @@ function projeto(i) {
       <span>Por equipe: ${eqs || '—'}</span>
       <span>Filtrar equipe: <select onchange="filtroEq[${i}]=this.value;projeto(${i})"><option value="">Todas</option>${opts}</select></span>
       <span><a href="#" onclick="todos(${i},true);return false">Ocultar sub-itens</a> · <a href="#" onclick="todos(${i},false);return false">Exibir todos</a></span>
-      <span><button class="btn" onclick="exportarPDF(${i})">📄 Exportar PDF</button></span>
+      <span><button class="btn" onclick="exportarPDF(${i})">📄 Exportar PDF</button> <button class="btn" onclick="exportarExcel(${i})">📊 Exportar Excel</button></span>
     </div>
     <div class="tbl"><table>
       <thead><tr><th></th><th>ID</th><th>Descrição</th><th>Equipe</th><th>Pred.</th><th>Prazo (d)</th><th>Pronto</th>
@@ -333,7 +328,7 @@ function editar(i, id, field, v) {
     if (v < 100 && r.fimReal) set('fimReal', '');
   }
   if (field === 'fimReal' && v && r.pct < 100) set('pct', 100);
-  if (field !== 'obs') { calcular(p); projeto(i); } // obs não muda cálculo nem perde o foco
+  if (field !== 'obs') { calcular(p); projeto(i); }
   salvar(p.nome, up);
 }
 
@@ -365,12 +360,10 @@ function exportarPDF(i) {
   const fimPlan = maxD(f.map(r => r.iniPlan && iso(new Date(toD(r.iniPlan).getTime() + r.prazo * 864e5))));
   const atrasoFinal = fimPlan ? diff(toD(fimPlan), fimPrev) : null;
 
-  // saúde
   let saude = ['SAUDÁVEL', '#2e9d5b'];
   if (spi < 0.85 || al.atr > 2 || atrasoFinal > 15) saude = ['CRÍTICO', '#c0392b'];
   else if (spi < 0.95 || al.atr || al.proj || al.ini || atrasoFinal > 0) saude = ['ATENÇÃO', '#d4a017'];
 
-  // recomendações automáticas
   const rec = [];
   if (spi < 0.95) rec.push(`Ritmo abaixo do planejado (SPI ${spi.toFixed(2)}): ${fmt(Math.abs(desvio))} p.p. atrás do previsto para hoje.`);
   if (al.atr) rec.push(`${al.atr} atividade(s) já passaram do prazo: priorizar recursos e revisar as datas das sucessoras.`);
@@ -433,9 +426,65 @@ function exportarPDF(i) {
       <tbody>${notas.map(r => `<tr><td>${esc(r.id)}</td><td>${esc(r.descricao)}</td><td>${r.pct >= 100 ? '☑' : '☐'}</td><td>${esc(r.obs)}</td></tr>`).join('')}</tbody></table>` : ''}`;
 
   const t = document.title;
-  document.title = `Dashboard - ${p.nome} - ${iso(H)}`; // nome sugerido do arquivo
+  document.title = `Dashboard - ${p.nome} - ${iso(H)}`;
   window.print();
   document.title = t;
+}
+
+// ---------- RELATÓRIO EXCEL ----------
+function exportarExcel(i) {
+  if (!window.XLSX) return toast('Biblioteca Excel não carregada (verifique a internet)');
+  const p = projetos[i], H = hoje(), hs = iso(H);
+  const fimPl = r => r.iniPlan ? iso(new Date(toD(r.iniPlan).getTime() + Math.max(1, Math.ceil(r.prazo || 0)) * 864e5)) : '';
+  const ok = r => r.pct >= 100;
+  const emHoje = r => (r.iniPlan && r.iniPlan <= hs && hs < fimPl(r)) || r.fimReal === hs;
+  const atras = r => !ok(r) && r.iniPlan && fimPl(r) <= hs;
+  const naoIni = r => !ok(r) && !r.iniReal && r.iniPlan && r.iniPlan < hs;
+  const status = r => ok(r) ? 'Executada' : r.bloq ? 'Bloqueada' : r.iniReal ? 'Em andamento' : 'Pendente';
+  const nomeEq = e => e === SEM_EQ ? 'Sem equipe' : e;
+
+  const pares = p.folhas.flatMap(r => listaEq(r.equipe).map(e => ({ e: nomeEq(e), r })))
+    .sort((a, b) => a.e.localeCompare(b.e) || ordId(a.r, b.r));
+  const equipes = [...new Set(pares.map(x => x.e))];
+  const topo = t => [[`${p.nome} — ${t}`], [`Emitido em ${H.toLocaleDateString('pt-BR')}`], []];
+
+  // ----- Dashboard -----
+  const cont = l => {
+    const t = l.length, c = l.filter(ok).length;
+    return [t, c, t - c, t ? Math.round(c / t * 1000) / 10 : 0,
+      l.filter(emHoje).length, l.filter(r => emHoje(r) && ok(r)).length, l.filter(atras).length, l.filter(naoIni).length];
+  };
+  const dash = [...topo('Dashboard Executadas x Pendentes'),
+    ['Equipe', 'Total', 'Executadas', 'Pendentes', '% Executado', 'Programadas hoje', 'Executadas hoje', 'Atrasadas', 'Não iniciadas'],
+    ...equipes.map(e => [e, ...cont(pares.filter(x => x.e === e).map(x => x.r))]),
+    [], ['TOTAL DO PROJETO', ...cont(p.folhas)]];
+  const wsD = XLSX.utils.aoa_to_sheet(dash);
+  wsD['!cols'] = [24, 8, 11, 10, 12, 16, 15, 10, 13].map(w => ({ wch: w }));
+
+  // ----- Abas de listas -----
+  const aba = (titulo, filtro, xCab, xFn) => {
+    const lst = pares.filter(x => filtro(x.r));
+    const rows = [...topo(titulo),
+      ['Equipe', 'ID', 'Atividade', 'Pred.', 'Prazo (d)', 'Início plan.', 'Fim plan.', 'Início real', 'Fim real', 'Status', ...(xCab ? [xCab] : []), 'Observação']];
+    let ult = null;
+    lst.forEach(({ e, r }) => {
+      if (ult && ult !== e) rows.push([]);
+      ult = e;
+      rows.push([e, r.id, r.descricao, r.pred || '', r.prazo, br(r.iniPlan), br(fimPl(r)), br(r.iniReal), br(r.fimReal),
+        status(r), ...(xFn ? [xFn(r)] : []), r.obs || '']);
+    });
+    if (!lst.length) rows.push(['Nenhuma atividade.']);
+    const ws = XLSX.utils.aoa_to_sheet(rows);
+    ws['!cols'] = [20, 8, 45, 10, 9, 12, 12, 12, 12, 13, ...(xCab ? [14] : []), 40].map(w => ({ wch: w }));
+    return ws;
+  };
+
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, wsD, 'Dashboard');
+  XLSX.utils.book_append_sheet(wb, aba(`Programação do dia ${H.toLocaleDateString('pt-BR')}`, emHoje), 'Programação do dia');
+  XLSX.utils.book_append_sheet(wb, aba('Atividades atrasadas', atras, 'Dias de atraso', r => diff(toD(fimPl(r)), H)), 'Atrasadas');
+  XLSX.utils.book_append_sheet(wb, aba('Programadas e não iniciadas', naoIni, 'Dias sem iniciar', r => diff(toD(r.iniPlan), H)), 'Não iniciadas');
+  XLSX.writeFile(wb, `Relatorio - ${p.nome} - ${hs}.xlsx`);
 }
 
 function toast(m) { const t = $('#toast'); t.textContent = m; t.classList.remove('hidden'); clearTimeout(t._t); t._t = setTimeout(() => t.classList.add('hidden'), 2500); }
